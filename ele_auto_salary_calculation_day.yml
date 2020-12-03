@@ -1,0 +1,864 @@
+ele_auto_salary_env:
+  context_defaults:
+    platform_code: elem
+    play_on_dask_cluster: true
+    delay_compute: true
+    sync_result_from_cluster: true
+    dask_client_set_as_default: true
+    debug: true
+    cluster_client_address: 'tcp://172.31.54.193:8786'
+  pre_load_dataset:
+    - std_qplus_vendor_dc_map
+    - ele_month_58_std
+    - ele_month_59_std
+    - ele_month_57_std
+    - ele_month_33_std
+
+  #  预计算的数据集
+  play:
+    # === 欺诈单表
+    - name: ele_month_37_std_cheat
+      sync_result: true
+      keep_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: ele_month_37_std
+            dataset_cate: std
+            ignore_null_error: true
+            month_range: true
+            month_delta: -1
+            month_offset: 0
+            columns: [ 运单号,业务类型 ]
+        - df_select:
+            - '[业务类型] == @p1'
+            - p1: 欺诈单
+        - rename_cols:
+            - 业务类型: 欺诈单
+        - str_strip_column:
+            column: 运单号
+
+
+    # 运单详情上个月月末两天的数据
+    - name: ele_month_57_std_last_month_two_days
+      sync_result: true
+      keep_result: true
+      cooks:
+        - fetch_dataset:
+            dataset_type_code: ele_month_57_std
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+            columns: [ 站点ID,骑手ID, 运单送达时间, 运单号, 用户评价状态 ]
+
+        - when_empty_fetch_dataset:
+            dataset_type_code: ele_day_4_std
+            dataset_cate: std
+            month_offset: -1
+            ignore_null_error: true
+            columns: [ 站点ID,骑手ID, 运单送达时间, 运单号 ]
+
+        - convert_month_day_time_column:
+            src_column: 运单送达时间
+            day_column: 运单送达日期
+        # 获取算薪月上月的最后两天数据的
+        - run_py:
+            - |
+              date = df[u'运单送达日期'] % 100
+              df[u'本月总天数'] = date.max() % 100
+              result = df
+        - df_select:
+            - '[运单送达日期] % 100  > [本月总天数] - 2'
+
+
+    # === 基础单量 - 使用原有表计算
+    - name: ele_month_58_std_complete_order
+      sync_result: true
+      keep_result: true
+      cooks:
+        # 完成单量
+        - use_df:
+            key: ele_month_58_std
+            rename:
+              账单时间: 日期
+        - df_select:
+            - '[业务类型] == @p1 & [详情] in @p2'
+            - p1: 配送收入
+              p2: [差评,完成单,完成单-超时]
+        # 增加时段标签，每半小时为一个时间段
+        - add_cols:
+            - time_segment_no: -1
+        - run_py:
+            - |
+              df['time_segment_no'] = (df[u'业务交易时间_time'] % 100 + df[u'业务交易时间_time'].floordiv(100) * 60).floordiv(30) + 1
+              result = df
+        - df_to_int:
+            - time_segment_no
+        # 匹配欺诈单
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_month_37_std_cheat
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: 运单号
+            how: right
+            drop_stash: true
+
+
+    # 评价单
+    - name: ele_assess_order_monthly_day
+      sync_result: true
+      keep_result: true
+      cooks:
+        # 服务奖惩的评价中的好评
+        - use_df:
+            key: ele_month_59_std
+            columns: [骑手ID,运单号,评价等级,评价来源,评价日期,申述状态,判定状态]
+        - df_select:
+            - '([评价等级] == @p1) | ([评价等级] == @p2)'
+            - p1: 非常满意
+              p2: 吐槽
+        - drop_duplicates:
+            subset: [运单号]
+        - dask_persist_compute:
+            sync_compute: true
+            chunk_size: 5000
+        - push_dataset:
+            key: comment_assess_order
+        # 运单详情中的好评单
+        - use_df:
+            key: ele_month_57_std
+            columns: [站点ID, 运单送达时间, 运单号]
+        - stash_push_df: []
+        - use_df:
+            key: ele_month_57_std_last_month_two_days
+            columns: [站点ID, 运单送达时间, 运单号]
+        - stash_push_df: []
+        - stash_concat_df:
+            drop_stash: true
+        - dask_persist_compute:
+            sync_compute: true
+            chunk_size: 5000
+        - stash_push_df: []
+        - use_df:
+            key: comment_assess_order
+        - dask_persist_compute:
+            sync_compute: true
+            chunk_size: 5000
+        - stash_push_df: []
+        - stash_join_df:
+            on: 运单号
+            how: left
+            drop_stash: true
+        - run_py:
+            - |
+              df[u'评价间隔_dt'] = df[u'评价日期'] - df[u'运单送达时间']
+              df[u'评价间隔_res'] = df[u'评价间隔_dt'].dt.days * 24 + df[u'评价间隔_dt'].dt.seconds / 3600
+              result = df
+        - stash_push_df: []
+        # ！！！大坑预警：使用的评价日期
+        - convert_month_day_time_column:
+            src_column: 评价日期
+            day_column: 日期
+
+
+    # 好评-评价
+    - name: ele_assess_good_order_monthly_day
+      sync_result: true
+      keep_result: true
+      cooks:
+        - use_df:
+            key: ele_assess_order_monthly_day
+            columns: [骑手ID,站点ID,日期,运单号,评价等级,评价来源,评价日期,评价间隔_dt,评价间隔_res]
+        - df_select:
+            - '[评价等级] == @p1'
+            - p1: 非常满意
+        - push_dataset:
+            key: ele_assess_good_order_monthly_mini
+        # 计算所有评价
+        - df_groupby:
+            by: [ 骑手ID,日期 ]
+        - df_count:
+            column: 运单号
+            rename: 好评单量-评价
+        - df_reset_index: []
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_assess_good_order_monthly_mini
+        - df_select:
+            - '[评价间隔_res] < @p1'
+            - p1: 24
+        - df_groupby:
+            by: [ 骑手ID,日期 ]
+        - df_count:
+            column: 运单号
+            rename: 好评单量-评价-24h以下
+        - df_reset_index: []
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_assess_good_order_monthly_mini
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 48
+              p2: 24
+        - df_groupby:
+            by: [ 骑手ID,日期 ]
+        - df_count:
+            column: 运单号
+            rename: 好评单量-评价-24h-48h
+        - df_reset_index: []
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_assess_good_order_monthly_mini
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 72
+              p2: 48
+        - df_groupby:
+            by: [ 骑手ID,日期 ]
+        - df_count:
+            column: 运单号
+            rename: 好评单量-评价-48h-72h
+        - df_reset_index: []
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+        - push_dataset:
+            key: ele_assess_good_order_monthly_all_day
+        # 计算用户评价
+        - use_df:
+            key: ele_assess_good_order_monthly_mini
+        - df_select:
+            - '[评价来源] == @p1'
+            - p1: 用户
+        - push_dataset:
+            key: ele_assess_good_order_monthly_cust
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 好评单量-评价(用户)
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_good_order_monthly_cust
+        - df_select:
+            - '[评价间隔_res] < @p1'
+            - p1: 24
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 好评单量-评价(用户)-24h以下
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_good_order_monthly_cust
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 48
+              p2: 24
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 好评单量-评价(用户)-24h-48h
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_good_order_monthly_cust
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 72
+              p2: 48
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 好评单量-评价(用户)-48h-72h
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - push_dataset:
+            key: ele_assess_good_order_monthly_cust_day
+        - pop_dataset:
+            key: ele_assess_good_order_monthly_cust
+        # 计算商家评价
+        - use_df:
+            key: ele_assess_good_order_monthly_mini
+        - df_select:
+            - '[评价来源] == @p1'
+            - p1: 商家
+        - push_dataset:
+            key: ele_assess_good_order_monthly_business
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 好评单量-评价(商家)
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_good_order_monthly_business
+        - df_select:
+            - '[评价间隔_res] < @p1'
+            - p1: 24
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 好评单量-评价(商家)-24h以下
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_good_order_monthly_business
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 48
+              p2: 24
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 好评单量-评价(商家)-24h-48h
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_good_order_monthly_business
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 72
+              p2: 48
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 好评单量-评价(商家)-48h-72h
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - push_dataset:
+            key: ele_assess_good_order_monthly_business_day
+        - pop_dataset:
+            key: ele_assess_good_order_monthly_business
+        - pop_dataset:
+            key: ele_assess_good_order_monthly_mini
+        - use_df:
+            key: ele_assess_good_order_monthly_all_day
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_good_order_monthly_cust_day
+        - stash_push_df: []
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_good_order_monthly_business_day
+        - stash_push_df: []
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+
+
+    # 差评-评价
+    - name: ele_assess_bad_order_monthly_day
+      sync_result: true
+      keep_result: true
+      cooks:
+        - use_df:
+            key: ele_assess_order_monthly_day
+            columns: [骑手ID,站点ID,日期,运单号,评价等级,评价来源,评价日期,评价间隔_dt,评价间隔_res]
+        - df_select:
+            - '[评价等级] == @p1'
+            - p1: 吐槽
+        - push_dataset:
+            key: ele_assess_bad_order_monthly_mini
+        # 计算所有评价
+        - df_groupby:
+            by: [ 骑手ID,日期 ]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-评价
+        - df_reset_index: []
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_assess_bad_order_monthly_mini
+        - df_select:
+            - '[评价间隔_res] < @p1'
+            - p1: 24
+        - df_groupby:
+            by: [ 骑手ID,日期 ]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-评价-24h以下
+        - df_reset_index: []
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_assess_bad_order_monthly_mini
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 48
+              p2: 24
+        - df_groupby:
+            by: [ 骑手ID,日期 ]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-评价-24h-48h
+        - df_reset_index: []
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_assess_bad_order_monthly_mini
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 72
+              p2: 48
+        - df_groupby:
+            by: [ 骑手ID,日期 ]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-评价-48h-72h
+        - df_reset_index: []
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+        - push_dataset:
+            key: ele_assess_bad_order_monthly_all_day
+        # 计算用户评价
+        - use_df:
+            key: ele_assess_bad_order_monthly_mini
+        - df_select:
+            - '[评价来源] == @p1'
+            - p1: 用户
+        - push_dataset:
+            key: ele_assess_bad_order_monthly_cust
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-评价(用户)
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_bad_order_monthly_cust
+        - df_select:
+            - '[评价间隔_res] < @p1'
+            - p1: 24
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-评价(用户)-24h以下
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_bad_order_monthly_cust
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 48
+              p2: 24
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-评价(用户)-24h-48h
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_bad_order_monthly_cust
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 72
+              p2: 48
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-评价(用户)-48h-72h
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - push_dataset:
+            key: ele_assess_bad_order_monthly_cust_day
+        - pop_dataset:
+            key: ele_assess_bad_order_monthly_cust
+        # 计算商家评价
+        - use_df:
+            key: ele_assess_bad_order_monthly_mini
+        - df_select:
+            - '[评价来源] == @p1'
+            - p1: 商家
+        - push_dataset:
+            key: ele_assess_bad_order_monthly_business
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-评价(商家)
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_bad_order_monthly_business
+        - df_select:
+            - '[评价间隔_res] < @p1'
+            - p1: 24
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-评价(商家)-24h以下
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_bad_order_monthly_business
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 48
+              p2: 24
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-评价(商家)-24h-48h
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_bad_order_monthly_business
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 72
+              p2: 48
+        - df_groupby:
+            by: [骑手ID,日期]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-评价(商家)-48h-72h
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - push_dataset:
+            key: ele_assess_bad_order_monthly_business_day
+        - pop_dataset:
+            key: ele_assess_bad_order_monthly_business
+        - pop_dataset:
+            key: ele_assess_bad_order_monthly_mini
+        - use_df:
+            key: ele_assess_bad_order_monthly_all_day
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_bad_order_monthly_cust_day
+        - stash_push_df: []
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_bad_order_monthly_business_day
+        - stash_push_df: []
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+
+
+    # === 停用 === 好评单-运单详情 就在我写完以后不到5分钟 他们说不用了 对 不用了
+#    - name: ele_order_good_order_monthly_day
+#      sync_result: true
+#      keep_result: true
+#      cooks:
+#        - use_df:
+#            key: ele_month_59_std
+#            columns: [骑手ID,运单号,评价等级,评价日期]
+#        - df_select:
+#            - '[评价等级] == @p1'
+#            - p1: 非常满意
+#        - drop_duplicates:
+#            subset: [运单号]
+#        - dask_persist_compute:
+#            sync_compute: true
+#            chunk_size: 5000
+#        - push_dataset:
+#            key: comment_assess_order
+#        # 运单详情中的好评单
+#        - use_df:
+#            key: ele_month_57_std
+#            columns: [站点ID, 运单送达时间, 运单号, 用户评价状态]
+#        - df_select:
+#            - '[用户评价状态] == @p1'
+#            - p1: 非常满意
+#        - stash_push_df: []
+#        - use_df:
+#            key: ele_month_57_std_last_month_two_days
+#            columns: [站点ID, 运单送达时间, 运单号, 用户评价状态]
+#        - df_select:
+#            - '[用户评价状态] == @p1'
+#            - p1: 非常满意
+#        - stash_push_df: []
+#        - stash_concat_df:
+#            drop_stash: true
+#        - dask_persist_compute:
+#            sync_compute: true
+#            chunk_size: 5000
+#        - stash_push_df: []
+#        - use_df:
+#            key: comment_assess_order
+#        - dask_persist_compute:
+#            sync_compute: true
+#            chunk_size: 5000
+#        - stash_push_df: []
+#        - stash_join_df:
+#            on: 运单号
+#            how: right
+#            drop_stash: true
+#        - run_py:
+#            - |
+#              df[u'评价间隔_dt'] = df[u'评价日期'] - df[u'运单送达时间']
+#              df[u'评价间隔_res'] = df[u'评价间隔_dt'].dt.days * 24 + df[u'评价间隔_dt'].dt.seconds / 3600
+#              result = df
+#        - convert_month_day_time_column:
+#            src_column: 运单送达时间
+#            day_column: 日期
+#        - push_dataset:
+#            key: ele_order_good_order_monthly_day_mini
+#        - df_groupby:
+#            by: [ 骑手ID,日期 ]
+#        - df_count:
+#            column: 运单号
+#            rename: 好评单量-评价
+#        - df_reset_index: [ ]
+#        - stash_push_df: [ ]
+#        - use_df:
+#            key: ele_order_good_order_monthly_day_mini
+#        - df_select:
+#            - '[评价间隔_res] < @p1'
+#            - p1: 24
+#        - df_groupby:
+#            by: [ 骑手ID,日期 ]
+#        - df_count:
+#            column: 运单号
+#            rename: 好评单量-评价-24h以下
+#        - df_reset_index: [ ]
+#        - stash_push_df: [ ]
+#        - stash_join_df:
+#            on: [ 骑手ID,日期 ]
+#            how: right
+#            drop_stash: true
+#        - stash_push_df: [ ]
+#        - use_df:
+#            key: ele_order_good_order_monthly_day_mini
+#        - df_select:
+#            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+#            - p1: 48
+#              p2: 24
+#        - df_groupby:
+#            by: [ 骑手ID,日期 ]
+#        - df_count:
+#            column: 运单号
+#            rename: 好评单量-评价-24h-48h
+#        - df_reset_index: [ ]
+#        - stash_push_df: [ ]
+#        - stash_join_df:
+#            on: [ 骑手ID,日期 ]
+#            how: right
+#            drop_stash: true
+#        - stash_push_df: [ ]
+#        - use_df:
+#            key: ele_order_good_order_monthly_day_mini
+#        - df_select:
+#            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+#            - p1: 72
+#              p2: 48
+#        - df_groupby:
+#            by: [ 骑手ID,日期 ]
+#        - df_count:
+#            column: 运单号
+#            rename: 好评单量-评价-48h-72h
+#        - df_reset_index: [ ]
+#        - stash_push_df: [ ]
+#        - stash_join_df:
+#            on: [ 骑手ID,日期 ]
+#            how: right
+#            drop_stash: true
+
+
+    # 异常单-差评
+    - name: ele_anomaly_bad_order_monthly_day
+      sync_result: true
+      keep_result: true
+      cooks:
+        - use_df:
+            key: ele_month_33_std
+        - df_select:
+            - '([问题单类型] == @p1) | ([问题单类型] == @p2)'
+            - p1: 差评
+              p2: 差评(星巴克)
+        - stash_push_df: []
+        - use_df:
+            key: ele_assess_order_monthly_day
+            columns: [ 骑手ID,站点ID,日期,运单号,评价等级,评价间隔_dt,评价间隔_res ]
+        - df_select:
+            - '[评价等级] == @p1'
+            - p1: 吐槽
+        - stash_push_df: []
+        - stash_join_df:
+            on: 运单号
+            how: right
+            drop_stash: true
+        - push_dataset:
+            key: ele_anomaly_bad_order_monthly_mini
+        - df_groupby:
+            by: [ 骑手ID,日期 ]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-问题单
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_anomaly_bad_order_monthly_mini
+        - df_select:
+            - '[评价间隔_res] < @p1'
+            - p1: 24
+        - df_groupby:
+            by: [ 骑手ID,日期 ]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-问题单-24h以下
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_anomaly_bad_order_monthly_mini
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 48
+              p2: 24
+        - df_groupby:
+            by: [ 骑手ID,日期 ]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-问题单-24h-48h
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_anomaly_bad_order_monthly_mini
+        - df_select:
+            - '([评价间隔_res] < @p1) & ([评价间隔_res] >= @p2)'
+            - p1: 72
+              p2: 48
+        - df_groupby:
+            by: [ 骑手ID,日期 ]
+        - df_count:
+            column: 运单号
+            rename: 差评单量-问题单-48h-72h
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期 ]
+            how: right
+            drop_stash: true
+
+
+    # 各种超时
+    - name: ele_overtime_order_monthly_day
+      sync_result: true
+      keep_result: true
+      cooks:
+        - use_df:
+            key: ele_month_57_std
+        - df_select:
+            - '[骑手T超时时长] != @p1'
+            - p1: ——
+        - run_py:
+            - |
+              df = to_df(df)
+              fn = lambda x: re.match(u'超时(.*)分钟', x, ).group(1) if re.match(u'超时(.*)分钟', x, ) else u'0'
+              df[u'超时T分钟'] = df[u'骑手T超时时长'].apply(fn)
+
+
