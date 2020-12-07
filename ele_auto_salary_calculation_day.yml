@@ -13,6 +13,7 @@ ele_auto_salary_env:
     - ele_month_59_std
     - ele_month_57_std
     - ele_month_33_std
+    - ele_month_37_std
 
   #  预计算的数据集
   play:
@@ -71,7 +72,7 @@ ele_auto_salary_env:
 
 
     # === 基础单量 - 使用原有表计算
-    - name: ele_month_58_std_complete_order
+    - name: ele_month_58_std_complete_order_single_mini
       sync_result: true
       keep_result: true
       cooks:
@@ -101,6 +102,33 @@ ele_auto_salary_env:
         - stash_join_df:
             on: 运单号
             how: right
+            drop_stash: true
+        - df_select:
+            - '[欺诈单] != @p1'
+            - p1: 欺诈单
+
+        - push_dataset:
+            key: ele_month_58_std_mini
+        - use_df:
+            key: ele_month_58_std_mini
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: [ 时段补贴,重量补贴,距离补贴,金额,基础配送费 ]
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_month_58_std_mini
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 完成单量
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期,站点ID ]
+            how: outer
             drop_stash: true
 
 
@@ -176,7 +204,7 @@ ele_auto_salary_env:
             key: ele_assess_good_order_monthly_mini
         # 计算所有评价
         - df_groupby:
-            by: [ 骑手ID,日期 ]
+            by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
             rename: 好评单量-评价
@@ -188,14 +216,14 @@ ele_auto_salary_env:
             - '[评价间隔_res] < @p1'
             - p1: 24
         - df_groupby:
-            by: [ 骑手ID,日期 ]
+            by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
             rename: 好评单量-评价-24h以下
         - df_reset_index: []
         - stash_push_df: [ ]
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
         - stash_push_df: [ ]
@@ -206,14 +234,14 @@ ele_auto_salary_env:
             - p1: 48
               p2: 24
         - df_groupby:
-            by: [ 骑手ID,日期 ]
+            by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
             rename: 好评单量-评价-24h-48h
         - df_reset_index: []
         - stash_push_df: [ ]
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
         - stash_push_df: [ ]
@@ -224,14 +252,14 @@ ele_auto_salary_env:
             - p1: 72
               p2: 48
         - df_groupby:
-            by: [ 骑手ID,日期 ]
+            by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
             rename: 好评单量-评价-48h-72h
         - df_reset_index: []
         - stash_push_df: [ ]
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
         - push_dataset:
@@ -245,7 +273,7 @@ ele_auto_salary_env:
         - push_dataset:
             key: ele_assess_good_order_monthly_cust
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 好评单量-评价(用户)
@@ -257,14 +285,14 @@ ele_auto_salary_env:
             - '[评价间隔_res] < @p1'
             - p1: 24
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 好评单量-评价(用户)-24h以下
         - df_reset_index: []
         - stash_push_df: []
         - stash_join_df:
-            on: [骑手ID,日期]
+            on: [骑手ID,日期,站点ID]
             how: right
             drop_stash: true
         - stash_push_df: []
@@ -275,14 +303,14 @@ ele_auto_salary_env:
             - p1: 48
               p2: 24
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 好评单量-评价(用户)-24h-48h
         - df_reset_index: []
         - stash_push_df: []
         - stash_join_df:
-            on: [骑手ID,日期]
+            on: [骑手ID,日期,站点ID]
             how: right
             drop_stash: true
         - stash_push_df: []
@@ -293,14 +321,14 @@ ele_auto_salary_env:
             - p1: 72
               p2: 48
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 好评单量-评价(用户)-48h-72h
         - df_reset_index: []
         - stash_push_df: []
         - stash_join_df:
-            on: [骑手ID,日期]
+            on: [骑手ID,日期,站点ID]
             how: right
             drop_stash: true
         - push_dataset:
@@ -316,7 +344,7 @@ ele_auto_salary_env:
         - push_dataset:
             key: ele_assess_good_order_monthly_business
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 好评单量-评价(商家)
@@ -328,14 +356,14 @@ ele_auto_salary_env:
             - '[评价间隔_res] < @p1'
             - p1: 24
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 好评单量-评价(商家)-24h以下
         - df_reset_index: []
         - stash_push_df: []
         - stash_join_df:
-            on: [骑手ID,日期]
+            on: [骑手ID,日期,站点ID]
             how: right
             drop_stash: true
         - stash_push_df: []
@@ -346,14 +374,14 @@ ele_auto_salary_env:
             - p1: 48
               p2: 24
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 好评单量-评价(商家)-24h-48h
         - df_reset_index: []
         - stash_push_df: []
         - stash_join_df:
-            on: [骑手ID,日期]
+            on: [骑手ID,日期,站点ID]
             how: right
             drop_stash: true
         - stash_push_df: []
@@ -364,14 +392,14 @@ ele_auto_salary_env:
             - p1: 72
               p2: 48
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 好评单量-评价(商家)-48h-72h
         - df_reset_index: []
         - stash_push_df: []
         - stash_join_df:
-            on: [骑手ID,日期]
+            on: [骑手ID,日期,站点ID]
             how: right
             drop_stash: true
         - push_dataset:
@@ -387,7 +415,7 @@ ele_auto_salary_env:
             key: ele_assess_good_order_monthly_cust_day
         - stash_push_df: []
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
         - stash_push_df: []
@@ -395,7 +423,7 @@ ele_auto_salary_env:
             key: ele_assess_good_order_monthly_business_day
         - stash_push_df: []
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
 
@@ -415,7 +443,7 @@ ele_auto_salary_env:
             key: ele_assess_bad_order_monthly_mini
         # 计算所有评价
         - df_groupby:
-            by: [ 骑手ID,日期 ]
+            by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
             rename: 差评单量-评价
@@ -427,14 +455,14 @@ ele_auto_salary_env:
             - '[评价间隔_res] < @p1'
             - p1: 24
         - df_groupby:
-            by: [ 骑手ID,日期 ]
+            by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
             rename: 差评单量-评价-24h以下
         - df_reset_index: []
         - stash_push_df: [ ]
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
         - stash_push_df: [ ]
@@ -445,14 +473,14 @@ ele_auto_salary_env:
             - p1: 48
               p2: 24
         - df_groupby:
-            by: [ 骑手ID,日期 ]
+            by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
             rename: 差评单量-评价-24h-48h
         - df_reset_index: []
         - stash_push_df: [ ]
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
         - stash_push_df: [ ]
@@ -463,14 +491,14 @@ ele_auto_salary_env:
             - p1: 72
               p2: 48
         - df_groupby:
-            by: [ 骑手ID,日期 ]
+            by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
             rename: 差评单量-评价-48h-72h
         - df_reset_index: []
         - stash_push_df: [ ]
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
         - push_dataset:
@@ -484,7 +512,7 @@ ele_auto_salary_env:
         - push_dataset:
             key: ele_assess_bad_order_monthly_cust
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 差评单量-评价(用户)
@@ -496,14 +524,14 @@ ele_auto_salary_env:
             - '[评价间隔_res] < @p1'
             - p1: 24
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 差评单量-评价(用户)-24h以下
         - df_reset_index: []
         - stash_push_df: []
         - stash_join_df:
-            on: [骑手ID,日期]
+            on: [骑手ID,日期,站点ID]
             how: right
             drop_stash: true
         - stash_push_df: []
@@ -514,14 +542,14 @@ ele_auto_salary_env:
             - p1: 48
               p2: 24
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 差评单量-评价(用户)-24h-48h
         - df_reset_index: []
         - stash_push_df: []
         - stash_join_df:
-            on: [骑手ID,日期]
+            on: [骑手ID,日期,站点ID]
             how: right
             drop_stash: true
         - stash_push_df: []
@@ -532,14 +560,14 @@ ele_auto_salary_env:
             - p1: 72
               p2: 48
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 差评单量-评价(用户)-48h-72h
         - df_reset_index: []
         - stash_push_df: []
         - stash_join_df:
-            on: [骑手ID,日期]
+            on: [骑手ID,日期,站点ID]
             how: right
             drop_stash: true
         - push_dataset:
@@ -555,7 +583,7 @@ ele_auto_salary_env:
         - push_dataset:
             key: ele_assess_bad_order_monthly_business
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 差评单量-评价(商家)
@@ -567,14 +595,14 @@ ele_auto_salary_env:
             - '[评价间隔_res] < @p1'
             - p1: 24
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 差评单量-评价(商家)-24h以下
         - df_reset_index: []
         - stash_push_df: []
         - stash_join_df:
-            on: [骑手ID,日期]
+            on: [骑手ID,日期,站点ID]
             how: right
             drop_stash: true
         - stash_push_df: []
@@ -585,14 +613,14 @@ ele_auto_salary_env:
             - p1: 48
               p2: 24
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 差评单量-评价(商家)-24h-48h
         - df_reset_index: []
         - stash_push_df: []
         - stash_join_df:
-            on: [骑手ID,日期]
+            on: [骑手ID,日期,站点ID]
             how: right
             drop_stash: true
         - stash_push_df: []
@@ -603,14 +631,14 @@ ele_auto_salary_env:
             - p1: 72
               p2: 48
         - df_groupby:
-            by: [骑手ID,日期]
+            by: [骑手ID,日期,站点ID]
         - df_count:
             column: 运单号
             rename: 差评单量-评价(商家)-48h-72h
         - df_reset_index: []
         - stash_push_df: []
         - stash_join_df:
-            on: [骑手ID,日期]
+            on: [骑手ID,日期,站点ID]
             how: right
             drop_stash: true
         - push_dataset:
@@ -626,7 +654,7 @@ ele_auto_salary_env:
             key: ele_assess_bad_order_monthly_cust_day
         - stash_push_df: []
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
         - stash_push_df: []
@@ -634,7 +662,7 @@ ele_auto_salary_env:
             key: ele_assess_bad_order_monthly_business_day
         - stash_push_df: []
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
 
@@ -785,7 +813,7 @@ ele_auto_salary_env:
         - push_dataset:
             key: ele_anomaly_bad_order_monthly_mini
         - df_groupby:
-            by: [ 骑手ID,日期 ]
+            by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
             rename: 差评单量-问题单
@@ -797,14 +825,14 @@ ele_auto_salary_env:
             - '[评价间隔_res] < @p1'
             - p1: 24
         - df_groupby:
-            by: [ 骑手ID,日期 ]
+            by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
             rename: 差评单量-问题单-24h以下
         - df_reset_index: [ ]
         - stash_push_df: [ ]
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
         - stash_push_df: [ ]
@@ -815,14 +843,14 @@ ele_auto_salary_env:
             - p1: 48
               p2: 24
         - df_groupby:
-            by: [ 骑手ID,日期 ]
+            by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
             rename: 差评单量-问题单-24h-48h
         - df_reset_index: [ ]
         - stash_push_df: [ ]
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
         - stash_push_df: [ ]
@@ -833,14 +861,14 @@ ele_auto_salary_env:
             - p1: 72
               p2: 48
         - df_groupby:
-            by: [ 骑手ID,日期 ]
+            by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
             rename: 差评单量-问题单-48h-72h
         - df_reset_index: [ ]
         - stash_push_df: [ ]
         - stash_join_df:
-            on: [ 骑手ID,日期 ]
+            on: [ 骑手ID,日期,站点ID ]
             how: right
             drop_stash: true
 
@@ -852,13 +880,553 @@ ele_auto_salary_env:
       cooks:
         - use_df:
             key: ele_month_57_std
+            columns: [骑手ID,站点ID,运单送达时间,month,骑手T超时时长,运单号]
         - df_select:
             - '[骑手T超时时长] != @p1'
             - p1: ——
+        - convert_month_day_time_column:
+            src_column: 运单送达时间
+            day_column: 日期
         - run_py:
             - |
               df = to_df(df)
               fn = lambda x: re.match(u'超时(.*)分钟', x, ).group(1) if re.match(u'超时(.*)分钟', x, ) else u'0'
               df[u'超时T分钟'] = df[u'骑手T超时时长'].apply(fn)
+              result = to_dd(df)
+        - df_to_int:
+            - 超时T分钟
+        - push_dataset:
+            key: ele_overtime_order_monthly_day_order_mini
+        - df_groupby:
+            by: [骑手ID,日期,站点ID]
+        - df_count:
+            column: 运单号
+            rename: 超时单量-运单详情
+        - df_reset_index: []
+        - stash_push_df: []
+        - use_df:
+            key: ele_overtime_order_monthly_day_order_mini
+        - df_select:
+            - '([超时T分钟] >= @p1) & ([超时T分钟] < @p2)'
+            - p1: 12
+              p2: 15
+        - df_groupby:
+            by: [骑手ID,日期,站点ID]
+        - df_count:
+            column: 运单号
+            rename: 超时单量-运单详情-T12-T15
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: ele_overtime_order_monthly_day_order_mini
+        - df_select:
+            - '([超时T分钟] >= @p1) & ([超时T分钟] < @p2)'
+            - p1: 15
+              p2: 30
+        - df_groupby:
+            by: [骑手ID,日期,站点ID]
+        - df_count:
+            column: 运单号
+            rename: 超时单量-运单详情-T15-T30
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [骑手ID,日期]
+            how: right
+            drop_stash: true
+        - stash_push_df: []
+        - use_df:
+            key: ele_overtime_order_monthly_day_order_mini
+        - df_select:
+            - '([超时T分钟] >= @p1) & ([超时T分钟] < @p2)'
+            - p1: 30
+              p2: 45
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 超时单量-运单详情-T30-T45
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期,站点ID ]
+            how: right
+            drop_stash: true
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_overtime_order_monthly_day_order_mini
+        - df_select:
+            - '([超时T分钟] >= @p1) & ([超时T分钟] < @p2)'
+            - p1: 45
+              p2: 60
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 超时单量-运单详情-T45-T60
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期,站点ID ]
+            how: right
+            drop_stash: true
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_overtime_order_monthly_day_order_mini
+        - df_select:
+            - '[超时T分钟] < @p1'
+            - p1: 12
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 超时单量-运单详情-T12以下
+        - df_reset_index: []
+        - stash_push_df: []
+        - stash_join_df:
+            on: [ 骑手ID,日期,站点ID ]
+            how: right
+            drop_stash: true
+        - pop_dataset:
+            key: ele_overtime_order_monthly_day_order_mini
+
+
+
+    # 虚假配送单量
+    - name: ele_problem_order_monthly_day
+      sync_result: true
+      keep_result: true
+      cooks:
+        - use_df:
+            key: ele_month_57_std
+            columns: [ 骑手ID,站点ID,运单送达时间,month,骑手T超时时长,运单号 ]
+        - convert_month_day_time_column:
+            src_column: 运单送达时间
+            day_column: 日期
+        - dask_persist_compute:
+            sync_compute: true
+            chunk_size: 5000
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_month_33_std
+        - df_head: [ ]
+        - dask_persist_compute:
+            sync_compute: true
+            chunk_size: 5000
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 运单号 ]
+            how: left
+            drop_stash: true
+        - dask_persist_compute:
+            sync_compute: true
+            chunk_size: 5000
+        - push_dataset:
+            key: ele_problem_order_monthly_day_mini
+        - df_select:
+            - '[问题单类型] == @p1'
+            - p1: 虚假配送
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 虚假配送单量
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_problem_order_monthly_day_mini
+        - df_select:
+            - '[问题单类型] == @p1'
+            - p1: 虚假配送(评价)
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 虚假配送(评价)单量
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_problem_order_monthly_day_mini
+        - df_select:
+            - '[问题单类型] == @p1'
+            - p1: 虚假配送(投诉)
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 虚假配送(投诉)单量
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_problem_order_monthly_day_mini
+        - df_select:
+            - '[问题单类型] == @p1'
+            - p1: 配送原因取消
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 配送原因取消单量
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_problem_order_monthly_day_mini
+        - df_select:
+            - '[问题单类型] == @p1'
+            - p1: 配送原因取消(星巴克)
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 配送原因取消(星巴克)单量
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_problem_order_monthly_day_mini
+        - df_select:
+            - '[问题单类型] == @p1'
+            - p1: 违规送达
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 违规送达单量
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期,站点ID ]
+            how: outer
+            drop_stash: true
+        - pop_dataset:
+            key: ele_problem_order_monthly_day_mini
+
+
+    # 罚款单量、金额
+    - name: ele_fine_order_monthly_day
+      sync_result: true
+      keep_result: true
+      cooks:
+        - use_df:
+            key: ele_month_37_std
+            columns: [运单号, 账单类型]
+        - df_select:
+            - '[账单类型] == @p1'
+            - p1: '申诉返款'
+        - df_rename_columns:
+            - 账单类型: 申诉返款
+        - stash_push_df: []
+        - use_df:
+            key: ele_month_37_std
+            rename:
+                账单时间: 日期
+        - df_select:
+            - '[账单类型] == @p1'
+            - p1: '违规扣款'
+        - stash_push_df: []
+        - stash_join_df:
+            on: [运单号]
+            how: left
+            drop_stash: true
+        - df_select:
+            - '[申诉返款] != @p1'
+            - p1: '申诉返款'
+        - push_dataset:
+            key: ele_fine_order_monthly_day_mini
+
+        - use_df:
+            key: ele_fine_order_monthly_day_mini
+            columns: [ 运单号, 账单类型,日期,骑手ID,站点ID,金额,业务类型 ]
+        - df_select:
+            - '[业务类型] == @p1'
+            - p1: '索赔'
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: 金额
+            rename: 索赔金额
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_fine_order_monthly_day_mini
+            columns: [ 运单号, 账单类型,日期,骑手ID,站点ID,金额,业务类型 ]
+        - df_select:
+            - '[业务类型] == @p1'
+            - p1: '索赔'
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 索赔单量
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_fine_order_monthly_day_mini
+            columns: [ 运单号, 账单类型,日期,骑手ID,站点ID,金额,业务类型 ]
+        - df_select:
+            - '[业务类型] == @p1'
+            - p1: '抽检'
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: 金额
+            rename: 抽检金额
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_fine_order_monthly_day_mini
+            columns: [ 运单号, 账单类型,日期,骑手ID,站点ID,金额,业务类型 ]
+        - df_select:
+            - '[业务类型] == @p1'
+            - p1: '抽检'
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 抽检单量
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_fine_order_monthly_day_mini
+            columns: [ 运单号, 账单类型,日期,骑手ID,站点ID,金额,业务类型 ]
+        - df_select:
+            - '[业务类型] == @p1'
+            - p1: '投诉'
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: 金额
+            rename: 投诉金额-违规扣款
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - use_df:
+            key: ele_fine_order_monthly_day_mini
+            columns: [ 运单号, 账单类型,日期,骑手ID,站点ID,金额,业务类型 ]
+        - df_select:
+            - '[业务类型] == @p1'
+            - p1: '投诉'
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 投诉单量-违规扣款
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [骑手ID,日期,站点ID]
+            how: outer
+            drop_stash: true
+        - pop_dataset:
+            key: ele_fine_order_monthly_day_mini
+
+
+    # 在线时长 ！！！记着替换数据源！！！
+    - name: ele_online_monthly_day
+      sync_result: true
+      keep_result: true
+      cooks:
+        - use_df:
+            key: ele_month_48
+            columns: [骑手ID,meta_day,团队ID,全天在线时长]
+            rename:
+                meta_day: 日期
+                团队ID: 站点ID
+        - df_fillna:
+            columns: [全天在线时长]
+            value: '-'
+        - run_py:
+            - |
+                df = to_df(df)
+                fn = lambda x: (int(re.match(u'(.*)小时(.*)分钟', x, ).group(1)) * 60 + int(re.match(u'(.*)小时(.*)分钟', x, ).group(2))) if re.match(u'(.*)小时(.*)分钟', x, ) else 0
+                df[u'全天在线时长-分钟'] = df[u'全天在线时长'].apply(fn)
+                result = to_dd(df)
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: 全天在线时长-分钟
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_month_48
+            columns: [ 骑手ID,meta_day,团队ID,凌晨夜宵在线时长 ]
+            rename:
+              meta_day: 日期
+              团队ID: 站点ID
+        - df_fillna:
+            columns: [ 凌晨夜宵在线时长 ]
+            value: '-'
+        - run_py:
+            - |
+              df = to_df(df)
+              fn = lambda x: (int(re.match(u'(.*)小时(.*)分钟', x, ).group(1)) * 60 + int(re.match(u'(.*)小时(.*)分钟', x, ).group(2))) if re.match(u'(.*)小时(.*)分钟', x, ) else 0
+              df[u'凌晨夜宵在线时长-分钟'] = df[u'凌晨夜宵在线时长'].apply(fn)
+              result = to_dd(df)
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: 凌晨夜宵在线时长-分钟
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_month_48
+            columns: [ 骑手ID,meta_day,团队ID,凌晨夜宵在线时长 ]
+            rename:
+              meta_day: 日期
+              团队ID: 站点ID
+        - df_fillna:
+            columns: [ 凌晨夜宵在线时长 ]
+            value: '-'
+        - run_py:
+            - |
+              df = to_df(df)
+              fn = lambda x: (int(re.match(u'(.*)小时(.*)分钟', x, ).group(1)) * 60 + int(re.match(u'(.*)小时(.*)分钟', x, ).group(2))) if re.match(u'(.*)小时(.*)分钟', x, ) else 0
+              df[u'凌晨夜宵在线时长-分钟'] = df[u'凌晨夜宵在线时长'].apply(fn)
+              result = to_dd(df)
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: 凌晨夜宵在线时长-分钟
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_month_48
+            columns: [ 骑手ID,meta_day,团队ID,早餐在线时长 ]
+            rename:
+              meta_day: 日期
+              团队ID: 站点ID
+        - df_fillna:
+            columns: [ 早餐在线时长 ]
+            value: '-'
+        - run_py:
+            - |
+              df = to_df(df)
+              fn = lambda x: (int(re.match(u'(.*)小时(.*)分钟', x, ).group(1)) * 60 + int(re.match(u'(.*)小时(.*)分钟', x, ).group(2))) if re.match(u'(.*)小时(.*)分钟', x, ) else 0
+              df[u'早餐在线时长-分钟'] = df[u'早餐在线时长'].apply(fn)
+              result = to_dd(df)
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: 早餐在线时长-分钟
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_month_48
+            columns: [ 骑手ID,meta_day,团队ID,午高峰在线时长 ]
+            rename:
+              meta_day: 日期
+              团队ID: 站点ID
+        - df_fillna:
+            columns: [ 午高峰在线时长 ]
+            value: '-'
+        - run_py:
+            - |
+              df = to_df(df)
+              fn = lambda x: (int(re.match(u'(.*)小时(.*)分钟', x, ).group(1)) * 60 + int(re.match(u'(.*)小时(.*)分钟', x, ).group(2))) if re.match(u'(.*)小时(.*)分钟', x, ) else 0
+              df[u'午高峰在线时长-分钟'] = df[u'午高峰在线时长'].apply(fn)
+              result = to_dd(df)
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: 午高峰在线时长-分钟
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_month_48
+            columns: [ 骑手ID,meta_day,团队ID,下午在线时长 ]
+            rename:
+              meta_day: 日期
+              团队ID: 站点ID
+        - df_fillna:
+            columns: [ 下午在线时长 ]
+            value: '-'
+        - run_py:
+            - |
+              df = to_df(df)
+              fn = lambda x: (int(re.match(u'(.*)小时(.*)分钟', x, ).group(1)) * 60 + int(re.match(u'(.*)小时(.*)分钟', x, ).group(2))) if re.match(u'(.*)小时(.*)分钟', x, ) else 0
+              df[u'下午在线时长-分钟'] = df[u'下午在线时长'].apply(fn)
+              result = to_dd(df)
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: 下午在线时长-分钟
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_month_48
+            columns: [ 骑手ID,meta_day,团队ID,晚高峰在线时长 ]
+            rename:
+              meta_day: 日期
+              团队ID: 站点ID
+        - df_fillna:
+            columns: [ 晚高峰在线时长 ]
+            value: '-'
+        - run_py:
+            - |
+              df = to_df(df)
+              fn = lambda x: (int(re.match(u'(.*)小时(.*)分钟', x, ).group(1)) * 60 + int(re.match(u'(.*)小时(.*)分钟', x, ).group(2))) if re.match(u'(.*)小时(.*)分钟', x, ) else 0
+              df[u'晚高峰在线时长-分钟'] = df[u'晚高峰在线时长'].apply(fn)
+              result = to_dd(df)
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: 晚高峰在线时长-分钟
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_month_48
+            columns: [ 骑手ID,meta_day,团队ID,晚间在线时长 ]
+            rename:
+              meta_day: 日期
+              团队ID: 站点ID
+        - df_fillna:
+            columns: [ 晚间在线时长 ]
+            value: '-'
+        - run_py:
+            - |
+              df = to_df(df)
+              fn = lambda x: (int(re.match(u'(.*)小时(.*)分钟', x, ).group(1)) * 60 + int(re.match(u'(.*)小时(.*)分钟', x, ).group(2))) if re.match(u'(.*)小时(.*)分钟', x, ) else 0
+              df[u'晚间在线时长-分钟'] = df[u'晚间在线时长'].apply(fn)
+              result = to_dd(df)
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: 晚间在线时长-分钟
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_month_48
+            columns: [ 骑手ID,meta_day,团队ID,晚间夜宵在线时长 ]
+            rename:
+              meta_day: 日期
+              团队ID: 站点ID
+        - df_fillna:
+            columns: [ 晚间夜宵在线时长 ]
+            value: '-'
+        - run_py:
+            - |
+              df = to_df(df)
+              fn = lambda x: (int(re.match(u'(.*)小时(.*)分钟', x, ).group(1)) * 60 + int(re.match(u'(.*)小时(.*)分钟', x, ).group(2))) if re.match(u'(.*)小时(.*)分钟', x, ) else 0
+              df[u'晚间夜宵在线时长-分钟'] = df[u'晚间夜宵在线时长'].apply(fn)
+              result = to_dd(df)
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_sum:
+            column: 晚间夜宵在线时长-分钟
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
 
 
