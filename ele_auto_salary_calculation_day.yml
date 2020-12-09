@@ -1512,13 +1512,16 @@ ele_auto_salary_env:
 
 
     # 各种运单详情相关-淘鲜达单量、即时单量、预订单量、盒马单量 ！！！记着替换数据源 ！！！
-    - name: ele_reward_order_monthly_day
+    - name: ele_month_57_order_monthly_day
       sync_result: true
       keep_result: true
       cooks:
         - use_df:
             key: ele_month_57
             columns: [ 骑手id, 团队ID,运单号,运单送达时间,运单类型,标品类型 ]
+            rename:
+              骑手id: 骑手ID
+              团队ID: 站点ID
         - convert_month_day_time_column:
             src_column: 运单送达时间
             day_column: 日期
@@ -1535,6 +1538,7 @@ ele_auto_salary_env:
             rename: 即时单量
         - df_reset_index: [ ]
         - stash_push_df: [ ]
+
         - use_df:
             key: ele_month_57_mini
         - df_select:
@@ -1552,18 +1556,6 @@ ele_auto_salary_env:
             key: ele_month_57_mini
         - df_select:
             - '[标品类型] == @p1'
-            - p1: 盒马
-        - df_groupby:
-            by: [ 骑手ID,日期,站点ID ]
-        - df_count:
-            column: 运单号
-            rename: 盒马单量
-        - df_reset_index: [ ]
-        - stash_push_df: [ ]
-        - use_df:
-            key: ele_month_57_mini
-        - df_select:
-            - '[标品类型] == @p1'
             - p1: 淘鲜达
         - df_groupby:
             by: [ 骑手ID,日期,站点ID ]
@@ -1572,15 +1564,118 @@ ele_auto_salary_env:
             rename: 淘鲜达单量
         - df_reset_index: [ ]
         - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期,站点ID ]
+            how: outer
+            drop_stash: true
+
+
+    # 各种配送费账单情相关-淘鲜达单量、 ！！！记着替换数据源 ！！！
+    - name: ele_month_58_order_monthly_day
+      sync_result: true
+      keep_result: true
+      cooks:
         - use_df:
-            key: ele_month_57_mini
+            key: ele_month_58
+            columns: [ 骑手ID, 团队ID,运单号,账单时间,详情,备注,门店名称,团队名称 ]
+            rename:
+              团队ID: 站点ID
+        - set_date_column:
+            src_column: 账单时间
+            format: MM-DD-YY
+        - df_rename_columns:
+            - 账单时间: 日期
+        - df_fillna:
+            columns: [ 团队名称,门店名称,备注 ]
+            value: u'-'
+        - run_py:
+            - |
+              df = to_df(df)
+              fn = lambda x: 1 if u'星巴克' in x else 0
+              df[u'门店名称_星巴克'] = df[u'门店名称'].apply(fn)
+              fnt = lambda x: 1 if u'淘鲜达' in x else 0
+              df[u'团队名称_淘鲜达'] = df[u'团队名称'].apply(fnt)
+              fnz = lambda x: 1 if u'质' in x else 0
+              df[u'备注_质选订单'] = df[u'备注'].apply(fnz)
+              result = to_dd(df)
+        - push_dataset:
+            key: ele_month_58_mini
+
         - df_select:
-            - '[标品类型] == @p1'
-            - p1: 淘鲜达
+            - '[详情] == @p1'
+            - p1: 完成单-超时
         - df_groupby:
             by: [ 骑手ID,日期,站点ID ]
         - df_count:
             column: 运单号
-            rename: 淘鲜达单量
+            rename: 完成单-超时
         - df_reset_index: [ ]
         - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_month_58_mini
+        - df_select:
+            - '[备注_质选订单] == @p1'
+            - p1: 1
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 质选订单
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_month_58_mini
+        - df_select:
+            - '[门店名称_星巴克] == @p1'
+            - p1: 1
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 星巴克单量
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+
+        - use_df:
+            key: ele_month_58_mini
+        - df_select:
+            - '[团队名称_淘鲜达] == @p1'
+            - p1: 1
+        - df_groupby:
+            by: [ 骑手ID,日期,站点ID ]
+        - df_count:
+            column: 运单号
+            rename: 淘鲜达单量-配送费
+        - df_reset_index: [ ]
+        - stash_push_df: [ ]
+        - stash_join_df:
+            on: [ 骑手ID,日期,站点ID ]
+            how: outer
+            drop_stash: true
+
+
+    # 各种评价单相关- ！！！记着替换数据源 ！！！
+    - name: ele_month_58_order_monthly_day
+      sync_result: true
+      keep_result: true
+      cooks:
+        - use_df:
+            key: ele_month_59
+            columns: [ 骑手id, 团队ID,运单号,评价日期,评价等级,判定状态,申述状态,评价标签 ]
+            rename:
+              团队ID: 站点ID
+        - set_date_column:
+            src_column: 评价日期
+            format: MM-DD-YY
+        - df_rename_columns:
+            - 账单时间: 日期
+
+
+
+
+
+
+
+

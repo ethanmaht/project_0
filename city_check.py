@@ -49,7 +49,7 @@ class MakingSamples:
         team_id = list(set(_df[team_id_type].to_list()))
         check = CheckCity()
         if check.team_id_cheek(team_id, self.city_name, team_id_dict):
-            _df['下载城市'] = self.city_name
+            _df['下载城市'] = check.team_id_cheek(team_id, self.city_name, team_id_dict)
             return _df
         else:
             return None
@@ -78,8 +78,8 @@ class CheckCity:
         for _id in team_ids:
             _city = team_id_dict.get(_id)
             if _city:
-                if _city == city_name:
-                    return True
+                if _city in city_name:
+                    return _city
                 elif _city == 'end':
                     return False
                 else:
